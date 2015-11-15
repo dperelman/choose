@@ -1,0 +1,385 @@
+<!doctype html>
+<html>
+  <head>
+    <meta content="text/html;charset=utf-8" http-equiv="Content-Type">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Choose app</title>
+    <style type="text/css">
+      body {
+        background: black;
+        color: white;
+      }
+      #canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 6px;
+        width: 100%
+        height: calc(100%-6px);
+        z-index: 1;
+        border-bottom: 6px solid #1a8000;
+      }
+      #ruler {
+        position: absolute;
+        z-index: 0;
+        width: 1cm;
+        height: 1cm;
+      }
+      .intro {
+        position: absolute;
+        z-index: 0;
+        top: 50%;
+        transform: translate(0, -50%);
+        text-align: center;
+        font-size: 10vw;
+        text-transform: uppercase;
+        font-family: sans-serif;
+        color: white;
+      }
+      #about {
+        position: absolute;
+        z-index: 2;
+        bottom: 0;
+        right: 0;
+        font-size: 3vw;
+        text-decoration: none;
+        display: none;
+      }
+      #debug {
+        display: none;
+        position: absolute;
+        z-index: 0;
+        bottom: 0;
+        left: 0;
+        font-size: 3vw;
+      }
+    </style>
+  </head>
+  <body>
+    <span id = "intro" class = "intro">All players place a finger on the screen</span>
+    <a id = "about" target = "_blank" href = "#">About Choose</a>
+    <canvas id = "canvas"></canvas>
+    <div id = "debug">
+      <ul>
+        <li>Progress: <span id = "progress"></span></li>
+        <li>Touch count: <span id = "touchCount"></span></li>
+        <li>Last animation update time: <span id = "animTime"></span></li>
+      </ul>
+    </div>
+    <div id = "ruler"></div>
+    <script >
+var touches = [];
+var lastTouchChange = null;
+var lastNoTouch = null;
+var complete = false;
+var turnOrder = null; // when complete is true, holds the choice of turn order
+
+var TOUCH_WAIT_TIME = 5000;
+var TEXT_FADE_TIME = 1000;
+
+var colors = {};
+
+// Based on http://martin.ankerl.com/2009/12/09/how-to-create-random-colors-programmatically/
+var lastHue = Math.random();
+var GOLDEN_RATIO_CONJUGATE = 0.618033988749895;
+function nextColor() {
+  var h = lastHue;
+  h += GOLDEN_RATIO_CONJUGATE;
+  h %= 1;
+  lastHue = h;
+  return toHexColor(hsvToRgb(h, 0.5, 0.95));
+}
+
+// From http://snipplr.com/view.php?codeview&id=14590
+/**
+ * HSV to RGB color conversion
+ *
+ * H runs from 0 to 360 degrees
+ * S and V run from 0 to 1
+ * 
+ * Ported from the excellent java algorithm by Eugene Vishnevsky at:
+ * http://www.cs.rit.edu/~ncs/color/t_convert.html
+ */
+function hsvToRgb(h, s, v) {
+  var r, g, b;
+  var i;
+  var f, p, q, t;
+
+  // Make sure our arguments stay in-range
+  h = Math.max(0, Math.min(1, h));
+  s = Math.max(0, Math.min(1, s));
+  v = Math.max(0, Math.min(1, v));
+
+  if(s == 0) {
+    // Achromatic (grey)
+    r = g = b = v;
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+  }
+
+  h *= 6; // sector 0 to 5
+  i = Math.floor(h);
+  f = h - i; // factorial part of h
+  p = v * (1 - s);
+  q = v * (1 - s * f);
+  t = v * (1 - s * (1 - f));
+
+  switch(i) {
+    case 0:
+      r = v;
+      g = t;
+      b = p;
+      break;
+
+    case 1:
+      r = q;
+      g = v;
+      b = p;
+      break;
+
+    case 2:
+      r = p;
+      g = v;
+      b = t;
+      break;
+
+    case 3:
+      r = p;
+      g = q;
+      b = v;
+      break;
+
+    case 4:
+      r = t;
+      g = p;
+      b = v;
+      break;
+
+    default: // case 5:
+      r = v;
+      g = p;
+      b = q;
+  }
+
+  return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+function toHexColor(rgb) {
+  var res = '#';
+  for (var i = 0; i < 3; i++) {
+    res += ("0" + Math.round(rgb[i]).toString(16)).slice(-2);
+  }
+  return res;
+}
+
+// From http://stackoverflow.com/a/2450976
+function shuffle(array) {
+  var currentIndex = array.length, temporaryValue, randomIndex ;
+
+  // While there remain elements to shuffle...
+  while (0 !== currentIndex) {
+
+    // Pick a remaining element...
+    randomIndex = Math.floor(Math.random() * currentIndex);
+    currentIndex -= 1;
+
+    // And swap it with the current element.
+    temporaryValue = array[currentIndex];
+    array[currentIndex] = array[randomIndex];
+    array[randomIndex] = temporaryValue;
+  }
+
+  return array;
+}
+
+function checkComplete() {
+  now = Date.now();
+  if(!complete
+      && touches.length > 1
+      && lastTouchChange !== null
+      && (now - lastTouchChange) > TOUCH_WAIT_TIME) {
+    complete = true;
+    var players = [];
+    for (var i = 0; i < touches.length; i++) {
+      players.push(i);
+    }
+    shuffle(players);
+    turnOrder = players;
+  }
+}
+
+document.body.addEventListener('touchmove', function(event) {
+  // prevent scrolling (from http://www.html5rocks.com/en/mobile/touch/ )
+  event.preventDefault();
+  if(!complete) {
+    touches = event.touches;
+  }
+}, false);
+
+document.body.addEventListener('touchstart', function(event) {
+  if(!complete) {
+    event.preventDefault();
+
+    if(touches.length <= 1) {
+      lastNoTouch = Date.now();
+    }
+
+    touches = event.touches;
+    lastTouchChange = Date.now();
+
+    for (var i = 0; i < event.changedTouches.length; i++) {
+      colors[event.changedTouches[i].identifier] = nextColor();
+    }
+  }
+}, false);
+
+document.body.addEventListener('touchend', function(event) {
+  if(!complete) {
+    event.preventDefault();
+    touches = event.touches;
+    lastTouchChange = Date.now();
+
+    for (var i = 0; i < event.changedTouches.length; i++) {
+      delete colors[event.changedTouches[i].identifier];
+    }
+  }
+}, false);
+
+// From http://www.paulirish.com/2011/requestanimationframe-for-smart-animating/
+// shim layer with setTimeout fallback
+window.requestAnimFrame = (function(){
+  return  window.requestAnimationFrame       ||
+          window.webkitRequestAnimationFrame ||
+          window.mozRequestAnimationFrame    ||
+          function( callback ){
+            window.setTimeout(callback, 1000 / 60);
+          };
+})();
+
+var canvas = document.getElementById('canvas');
+// From http://stackoverflow.com/a/8876069
+canvas.width = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
+canvas.height = Math.max(document.documentElement.clientHeight, window.innerHeight || 0) - 6;
+var context = canvas.getContext('2d');
+
+var RADIUS = 0;
+var ruler = document.getElementById('ruler');
+
+document.body.onload = function() {
+  var CM_IN_PX = document.defaultView.getComputedStyle(ruler).width.slice(0, -2);
+  ruler.style.display = 'none';
+
+  RADIUS = 1*CM_IN_PX;
+}
+
+function drawCircle(centerX, centerY, radius, lineWidth, color, fill) {
+  // From http://www.html5canvastutorials.com/tutorials/html5-canvas-circles/
+  context.beginPath();
+  context.arc(centerX, centerY, radius, 0, 2 * Math.PI, false);
+  if(fill) {
+    context.fillStyle = color;
+    context.fill();
+  }
+  context.lineWidth = 5;
+  context.strokeStyle = color;
+  context.stroke();
+  context.closePath();
+}
+
+var randomRotations = [];
+for(var i = 0; i < 10; i++) {
+  randomRotations[i] = Math.PI * 2 * Math.random();
+}
+// From http://www.arungudelli.com/html5/html5-canvas-polygon/
+function drawRegularPolygon(ctx, x, y, radius, sides) {
+  if (sides < 3) return;
+  ctx.save();
+  ctx.beginPath();
+  var a = ((Math.PI * 2)/sides);
+  var off = randomRotations[sides];
+  ctx.translate(x,y);
+  ctx.rotate(off);
+  ctx.moveTo(radius,0);
+  for (var i = 1; i < sides; i++) {
+    var theta = a*i;
+    ctx.lineTo(radius*Math.cos(theta),radius*Math.sin(theta));
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+function render() {
+  checkComplete();
+
+  var currentTime = Date.now();
+  document.getElementById('animTime').innerText = currentTime;
+  document.getElementById('touchCount').innerText = touches.length;
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+
+  var intro = document.getElementById('intro');
+  var timeTouched = currentTime - lastNoTouch;
+  if(touches.length <= 1) {
+    intro.style.display = '';
+    intro.style.color = 'white';
+  } else if(timeTouched < TEXT_FADE_TIME) {
+    intro.style.display = '';
+    var brightness = 255 - Math.round(1.0 * timeTouched / TEXT_FADE_TIME * 255.0);
+    intro.style.color = toHexColor([brightness, brightness, brightness]);
+  } else {
+    intro.style.display = 'none';
+    intro.style.color = 'black';
+  }
+
+  if(complete) {
+    document.getElementById('about').style.display = 'inherit';
+    document.body.style.background = 'white';
+    canvas.style.border = 'white';
+    for (var i = 0; i < touches.length; i++) {
+      var touch = touches[i];
+      var turn = turnOrder[i] + 1;
+      if(turn == 1) {
+        drawCircle(touch.pageX, touch.pageY, 1.5*RADIUS, '1vw', colors[touch.identifier], true);
+      } else if(turn == 2) {
+        drawCircle(touch.pageX, touch.pageY, 0.6*RADIUS, '1vw', colors[touch.identifier], true);
+        drawCircle(touch.pageX, touch.pageY, RADIUS, '1vw', colors[touch.identifier], false);
+      } else {
+        context.fillStyle = colors[touch.identifier];
+        context.strokeStyle = colors[touch.identifier];
+        drawRegularPolygon(context, touch.pageX, touch.pageY, RADIUS, turn);
+      }
+      if(turn == 1) {
+        context.font = 2*RADIUS + "px sans-serif";
+      } else {
+        context.font = RADIUS + "px sans-serif";
+      }
+      context.fillStyle = 'black';
+      context.textAlign = 'center';
+      context.textBaseline = 'middle';
+      context.fillText(turn, touch.pageX, touch.pageY);
+    }
+  } else {
+    if(touches.length <= 1) {
+      document.body.style.background = 'black';
+    } else {
+      var sinceLastTouch = currentTime - lastTouchChange;
+      var progress = 1.0 * sinceLastTouch/TOUCH_WAIT_TIME;
+      var progressColor = toHexColor(hsvToRgb(0.3, 1, progress/2));
+      document.getElementById('progress').innerText = progressColor + ", " + progress;
+      document.body.style.background = progressColor;
+    }
+    for (var i = 0; i < touches.length; i++) {
+      var touch = touches[i];
+      drawCircle(touch.pageX, touch.pageY, RADIUS, '1vw', colors[touch.identifier], true);
+    }
+  }
+  return !complete;
+}
+(function animloop(){
+  if(render()) {
+    requestAnimFrame(animloop);
+  }
+})();
+    </script>
+  </body>
+</html>
