@@ -1,2 +1,2 @@
 # choose
-Web app for quickly randomizing player order for a game. Based on Chwazi Android app.
+Web app for quickly randomizing player order for a game. Based on [Chwazi Android app](https://play.google.com/store/apps/details?id=com.tendadigital.chwaziApp&hl=en).
