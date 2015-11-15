@@ -204,6 +204,9 @@ function checkComplete() {
     }
     shuffle(players);
     turnOrder = players;
+    if(navigator.vibrate) {
+      navigator.vibrate(200);
+    }
   }
 }
 
