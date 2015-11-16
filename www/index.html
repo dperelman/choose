@@ -46,27 +46,12 @@
         text-decoration: none;
         display: none;
       }
-      #debug {
-        display: none;
-        position: absolute;
-        z-index: 0;
-        bottom: 0;
-        left: 0;
-        font-size: 3vw;
-      }
     </style>
   </head>
   <body>
     <span id = "intro" class = "intro">All players place a finger on the screen</span>
     <a id = "about" target = "_blank" href = "https://github.com/dperelman/choose">About Choose</a>
     <canvas id = "canvas"></canvas>
-    <div id = "debug">
-      <ul>
-        <li>Progress: <span id = "progress"></span></li>
-        <li>Touch count: <span id = "touchCount"></span></li>
-        <li>Last animation update time: <span id = "animTime"></span></li>
-      </ul>
-    </div>
     <div id = "ruler"></div>
     <script >
 var touches = [];
@@ -315,8 +300,6 @@ function render() {
   checkComplete();
 
   var currentTime = Date.now();
-  document.getElementById('animTime').innerText = currentTime;
-  document.getElementById('touchCount').innerText = touches.length;
 
   context.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -368,7 +351,6 @@ function render() {
       var sinceLastTouch = currentTime - lastTouchChange;
       var progress = 1.0 * sinceLastTouch/TOUCH_WAIT_TIME;
       var progressColor = toHexColor(hsvToRgb(0.3, 1, progress/2));
-      document.getElementById('progress').innerText = progressColor + ", " + progress;
       document.body.style.background = progressColor;
     }
     for (var i = 0; i < touches.length; i++) {
