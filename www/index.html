@@ -349,8 +349,8 @@ function render() {
       document.body.style.background = 'black';
     } else {
       var sinceLastTouch = currentTime - lastTouchChange;
-      var progress = 1.0 * sinceLastTouch/TOUCH_WAIT_TIME;
-      var progressColor = toHexColor(hsvToRgb(0.3, 1, progress/2));
+      var progress = Math.max(0.0, 1.0 * (sinceLastTouch - TEXT_FADE_TIME)/TOUCH_WAIT_TIME);
+      var progressColor = toHexColor(hsvToRgb(0.3, 1, Math.pow(progress, 1.5)/2));
       document.body.style.background = progressColor;
     }
     for (var i = 0; i < touches.length; i++) {
