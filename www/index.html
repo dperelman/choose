@@ -46,6 +46,11 @@
         text-decoration: none;
         display: none;
       }
+      .circle {
+        position: absolute;
+        border-radius: 50%;
+        z-index: 1;
+      }
     </style>
   </head>
   <body>
@@ -181,6 +186,7 @@ function clearExpiredTouchInfos() {
   for(var tid in touchInfos) {
     var touch = touchInfos[tid];
     if(!touch.active && touch.expirationTime < now) {
+      document.body.removeChild(touchInfos[tid].div);
       delete touchInfos[tid];
     }
   }
@@ -306,6 +312,7 @@ document.body.addEventListener('touchstart', function(event) {
         var newTouch = {};
         newTouch.color = nextColor();
         newTouch.touchStartTime = now;
+        newTouch.div = null;
       }
       newTouch.x = x;
       newTouch.y = y;
@@ -404,14 +411,15 @@ function render() {
 
   var currentTime = Date.now();
 
-  context.clearRect(0, 0, canvas.width, canvas.height);
-
   if(complete) {
+    context.clearRect(0, 0, canvas.width, canvas.height);
+
     document.getElementById('about').style.display = 'inherit';
     document.body.style.background = 'white';
     canvas.style.border = 'white';
     for (var id in touchInfos) {
       var touch = touchInfos[id];
+      document.body.removeChild(touch.div);
       var turn = touch.turnOrder;
       var color = touch.color;
       if(turn == 1) {
@@ -458,9 +466,20 @@ function render() {
     for (var id in touchInfos) {
       var touch = touchInfos[id];
       var charge = computeTouchInfoCharge(touch);
+      var radius = charge/TOUCH_WAIT_TIME * RADIUS;
       var color = touch.color;
-      drawCircle(touch.x, touch.y, charge/TOUCH_WAIT_TIME * RADIUS,
-                 '1vw', color, true);
+      if(touch.div == null) {
+        var d = document.createElement('div');
+        d.className = 'circle';
+        d.style.background = color;
+        d.style.position = 'absolute';
+        document.body.appendChild(d);
+        touch.div = d;
+      }
+      touch.div.style.width = 2*radius + "px";
+      touch.div.style.height = 2*radius + "px";
+      touch.div.style.top = touch.y-radius + "px";
+      touch.div.style.left = touch.x-radius + "px";
     }
   }
   return !complete;
