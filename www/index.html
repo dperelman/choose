@@ -54,16 +54,11 @@
     <canvas id = "canvas"></canvas>
     <div id = "ruler"></div>
     <script >
-var touches = [];
-var lastTouchChange = null;
-var lastNoTouch = null;
+var touchInfos = {};
 var complete = false;
-var turnOrder = null; // when complete is true, holds the choice of turn order
 
 var TOUCH_WAIT_TIME = 2000;
 var TEXT_FADE_TIME = 750;
-
-var colors = {};
 
 // Based on http://martin.ankerl.com/2009/12/09/how-to-create-random-colors-programmatically/
 var lastHue = Math.random();
@@ -155,6 +150,11 @@ function toHexColor(rgb) {
   }
   return res;
 }
+function distance(x1, y1, x2, y2) {
+  var x = x1-x2;
+  var y = y1-y2;
+  return Math.sqrt(x*x + y*y);
+}
 
 // From http://stackoverflow.com/a/2450976
 function shuffle(array) {
@@ -176,21 +176,87 @@ function shuffle(array) {
   return array;
 }
 
+function clearExpiredTouchInfos() {
+  var now = Date.now();
+  for(var tid in touchInfos) {
+    var touch = touchInfos[tid];
+    if(!touch.active && touch.expirationTime < now) {
+      delete touchInfos[tid];
+    }
+  }
+}
+
+function areAllTouchInfosActive() {
+  for(var tid in touchInfos) {
+    var touch = touchInfos[tid];
+    if(!touch.active) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function computeTouchInfoCharge(touch) {
+  var now = Date.now();
+  if(!touch.active) {
+    return Math.min(TOUCH_WAIT_TIME, Math.max(0, touch.expirationTime - now));
+  } else {
+    return Math.min(TOUCH_WAIT_TIME, now - touch.touchStartTime);
+  }
+}
+function touchInfoMaxCharge() {
+  var max = 0;
+  for(var tid in touchInfos) {
+    var touch = touchInfos[tid];
+    max = Math.max(max, computeTouchInfoCharge(touch));
+  }
+  return max;
+}
+function touchInfoMaxPairCharge() {
+  if(Object.keys(touchInfos).length < 2) {
+    return 0;
+  }
+  var charges = [];
+  for(var tid in touchInfos) {
+    var touch = touchInfos[tid];
+    var charge = computeTouchInfoCharge(touch);
+    charges.push(charge);
+  }
+  charges.sort(function(a,b) { return a-b; });
+  return charges[charges.length-2];
+}
+function touchInfoMinActiveTime() {
+  var max = 0;
+  for(var tid in touchInfos) {
+    var touch = touchInfos[tid];
+    if(!touch.active) {
+      return 0;
+    } else {
+      max = Math.max(max, touch.touchStartTime);
+    }
+  }
+  return Date.now() - max;
+}
+
 function checkComplete() {
   now = Date.now();
-  if(!complete
-      && touches.length > 1
-      && lastTouchChange !== null
-      && (now - lastTouchChange) > TOUCH_WAIT_TIME) {
-    complete = true;
-    var players = [];
-    for (var i = 0; i < touches.length; i++) {
-      players.push(i);
-    }
-    shuffle(players);
-    turnOrder = players;
-    if(navigator.vibrate) {
-      navigator.vibrate(200);
+  if(!complete) {
+    clearExpiredTouchInfos();
+    if(Object.keys(touchInfos).length > 1
+        && areAllTouchInfosActive()
+        && touchInfoMinActiveTime() > TOUCH_WAIT_TIME) {
+      complete = true;
+      var players = [];
+      for (var id in touchInfos) {
+        players.push(id);
+      }
+      shuffle(players);
+      for (var i = 0; i < players.length; i++) {
+        touchInfos[players[i]].turnOrder = i + 1;
+      }
+      if(navigator.vibrate) {
+        navigator.vibrate(200);
+      }
     }
   }
 }
@@ -199,23 +265,53 @@ document.body.addEventListener('touchmove', function(event) {
   // prevent scrolling (from http://www.html5rocks.com/en/mobile/touch/ )
   event.preventDefault();
   if(!complete) {
-    touches = event.touches;
+    for (var i = 0; i < event.changedTouches.length; i++) {
+      var touch = event.changedTouches[i];
+      var id = touch.identifier;
+      touchInfos[id].x = touch.pageX;
+      touchInfos[id].y = touch.pageY;
+    }
   }
 }, false);
 
 document.body.addEventListener('touchstart', function(event) {
   if(!complete) {
     event.preventDefault();
+    clearExpiredTouchInfos();
 
-    if(touches.length <= 1) {
-      lastNoTouch = Date.now();
-    }
-
-    touches = event.touches;
-    lastTouchChange = Date.now();
+    var now = Date.now();
 
     for (var i = 0; i < event.changedTouches.length; i++) {
-      colors[event.changedTouches[i].identifier] = nextColor();
+      var touch = event.changedTouches[i];
+      var id = touch.identifier;
+      var x = touch.pageX;
+      var y = touch.pageY;
+
+      var newTouch = undefined;
+      var foundNearTouch = false;
+      for (var tid in touchInfos) {
+        var ti = touchInfos[tid];
+        if(!foundNearTouch
+            && !ti.active
+            && distance(x, y, ti.x, ti.y) < MAX_TOUCH_RECOVERY_DISTANCE) {
+          foundNearTouch = true;
+          var newTouch = ti;
+          var charge = computeTouchInfoCharge(ti);
+          newTouch.touchStartTime = now - charge;
+          delete touchInfos[tid];
+          break;
+        }
+      }
+      if(!foundNearTouch) {
+        var newTouch = {};
+        newTouch.color = nextColor();
+        newTouch.touchStartTime = now;
+      }
+      newTouch.x = x;
+      newTouch.y = y;
+      newTouch.active = true;
+      newTouch.expirationTime = undefined;
+      touchInfos[id] = newTouch;
     }
   }
 }, false);
@@ -223,11 +319,16 @@ document.body.addEventListener('touchstart', function(event) {
 document.body.addEventListener('touchend', function(event) {
   if(!complete) {
     event.preventDefault();
-    touches = event.touches;
-    lastTouchChange = Date.now();
+    var now = Date.now();
 
     for (var i = 0; i < event.changedTouches.length; i++) {
-      delete colors[event.changedTouches[i].identifier];
+      var id = event.changedTouches[i].identifier;
+      var touch = touchInfos[id];
+      var chargeTime = computeTouchInfoCharge(touch);
+      touch.active = false;
+      touch.expirationTime = now + chargeTime;
+      delete touchInfos[id];
+      touchInfos[id + '-expired-' + now] = touch;
     }
   }
 }, false);
@@ -251,12 +352,14 @@ var context = canvas.getContext('2d');
 
 var RADIUS = 0;
 var ruler = document.getElementById('ruler');
+var MAX_TOUCH_RECOVERY_DISTANCE = 0;
 
 document.body.onload = function() {
   var CM_IN_PX = document.defaultView.getComputedStyle(ruler).width.slice(0, -2);
   ruler.style.display = 'none';
 
   RADIUS = 1*CM_IN_PX;
+  MAX_TOUCH_RECOVERY_DISTANCE = 2*RADIUS;
 }
 
 function drawCircle(centerX, centerY, radius, lineWidth, color, fill) {
@@ -303,36 +406,23 @@ function render() {
 
   context.clearRect(0, 0, canvas.width, canvas.height);
 
-  var intro = document.getElementById('intro');
-  var timeTouched = currentTime - lastNoTouch;
-  if(touches.length <= 1) {
-    intro.style.display = '';
-    intro.style.color = 'white';
-  } else if(timeTouched < TEXT_FADE_TIME) {
-    intro.style.display = '';
-    var brightness = 255 - Math.round(1.0 * timeTouched / TEXT_FADE_TIME * 255.0);
-    intro.style.color = toHexColor([brightness, brightness, brightness]);
-  } else {
-    intro.style.display = 'none';
-    intro.style.color = 'black';
-  }
-
   if(complete) {
     document.getElementById('about').style.display = 'inherit';
     document.body.style.background = 'white';
     canvas.style.border = 'white';
-    for (var i = 0; i < touches.length; i++) {
-      var touch = touches[i];
-      var turn = turnOrder[i] + 1;
+    for (var id in touchInfos) {
+      var touch = touchInfos[id];
+      var turn = touch.turnOrder;
+      var color = touch.color;
       if(turn == 1) {
-        drawCircle(touch.pageX, touch.pageY, 1.5*RADIUS, '1vw', colors[touch.identifier], true);
+        drawCircle(touch.x, touch.y, 1.5*RADIUS, '1vw', color, true);
       } else if(turn == 2) {
-        drawCircle(touch.pageX, touch.pageY, 0.6*RADIUS, '1vw', colors[touch.identifier], true);
-        drawCircle(touch.pageX, touch.pageY, RADIUS, '1vw', colors[touch.identifier], false);
+        drawCircle(touch.x, touch.y, 0.6*RADIUS, '1vw', color, true);
+        drawCircle(touch.x, touch.y, RADIUS, '1vw', color, false);
       } else {
-        context.fillStyle = colors[touch.identifier];
-        context.strokeStyle = colors[touch.identifier];
-        drawRegularPolygon(context, touch.pageX, touch.pageY, RADIUS, turn);
+        context.fillStyle = color;
+        context.strokeStyle = color;
+        drawRegularPolygon(context, touch.x, touch.y, RADIUS, turn);
       }
       if(turn == 1) {
         context.font = 2*RADIUS + "px sans-serif";
@@ -342,20 +432,35 @@ function render() {
       context.fillStyle = 'black';
       context.textAlign = 'center';
       context.textBaseline = 'middle';
-      context.fillText(turn, touch.pageX, touch.pageY);
+      context.fillText(turn, touch.x, touch.y);
     }
   } else {
-    if(touches.length <= 1) {
+    var intro = document.getElementById('intro');
+    var pairMaxCharge = touchInfoMaxPairCharge();
+    if(pairMaxCharge == 0) {
+      intro.style.display = '';
+      intro.style.color = 'white';
       document.body.style.background = 'black';
     } else {
-      var sinceLastTouch = currentTime - lastTouchChange;
-      var progress = Math.max(0.0, 1.0 * (sinceLastTouch - TEXT_FADE_TIME)/TOUCH_WAIT_TIME);
+      if(pairMaxCharge < TEXT_FADE_TIME) {
+        intro.style.display = '';
+        var brightness = 255 - Math.round(1.0 * pairMaxCharge / TEXT_FADE_TIME * 255.0);
+        intro.style.color = toHexColor([brightness, brightness, brightness]);
+      } else {
+        intro.style.display = 'none';
+        intro.style.color = 'black';
+      }
+      var progress = Math.max(0.0, 1.0 * (pairMaxCharge - TEXT_FADE_TIME)/TOUCH_WAIT_TIME);
       var progressColor = toHexColor(hsvToRgb(0.3, 1, Math.pow(progress, 1.5)/2));
       document.body.style.background = progressColor;
     }
-    for (var i = 0; i < touches.length; i++) {
-      var touch = touches[i];
-      drawCircle(touch.pageX, touch.pageY, RADIUS, '1vw', colors[touch.identifier], true);
+
+    for (var id in touchInfos) {
+      var touch = touchInfos[id];
+      var charge = computeTouchInfoCharge(touch);
+      var color = touch.color;
+      drawCircle(touch.x, touch.y, charge/TOUCH_WAIT_TIME * RADIUS,
+                 '1vw', color, true);
     }
   }
   return !complete;
