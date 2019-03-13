@@ -489,6 +489,12 @@ function render() {
     requestAnimFrame(animloop);
   }
 })();
+
+if(navigator.vibrate) {
+  // Do a vibrate on page load to request vibration permissions in browsers
+  //  that show a confirmation dialog for it.
+  navigator.vibrate(1);
+}
     </script>
   </body>
 </html>
